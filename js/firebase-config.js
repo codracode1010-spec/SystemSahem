@@ -9,7 +9,7 @@
  */
 
 const firebaseConfig = {
-    apiKey: "AIzaSyABG_HXtoLGSY48YqBv5AzdLEmfDWbSWfs",
+    apiKey: "AIzaSyABG_HXtoLGSY48YqBv5AzdlEmfDWbSWfs",
     authDomain: "systemsahem.firebaseapp.com",
     projectId: "systemsahem",
     storageBucket: "systemsahem.firebasestorage.app",

@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>نظام تقارير المتبرعين</title>
+
+    <link rel="stylesheet" href="css/style.css" />
+  </head>
+
+  <body>
+    <!-- Auth Gate -->
+    <div id="authGate" class="auth-gate">
+      <p>جارٍ التحقق من الجلسة...</p>
+    </div>
+
+    <!-- Header -->
+    <header class="header">
+      <div class="container header-bar">
+        <div class="brand">
+          <div class="brand-icon">
+            <img
+              src="images/logo.png"
+              alt="brand-icon"
+              onerror="this.style.display='none'"
+            />
+          </div>
+
+          <div>
+            <h1>نظام تقارير المتبرعين</h1>
+            <p>تحويل طلبات واتساب إلى تقرير يومي</p>
+          </div>
+        </div>
+
+        <div class="header-user">
+          <span id="currentUserChip" class="user-chip"></span>
+          <button id="logoutBtn" class="btn btn-outline btn-sm" type="button">
+            🚪 تسجيل الخروج
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main -->
+    <main class="container main-content">
+      <!-- Introduction -->
+      <section class="intro-card">
+        <h2>تحويل طلبات المتبرعين</h2>
+
+        <p>
+          الصق رسائل المتبرعين من واتساب، وسيقوم النظام باستخراج البيانات
+          وترتيبها تلقائيًا.
+        </p>
+      </section>
+
+      <!-- Input Section -->
+      <section class="card">
+        <div class="section-title">
+          <div>
+            <h2>رسائل المتبرعين</h2>
+
+            <p>يمكنك لصق رسالة واحدة أو عدة رسائل دفعة واحدة.</p>
+          </div>
+        </div>
+
+        <textarea
+          id="messagesInput"
+          class="messages-input"
+          placeholder="الصق رسائل واتساب هنا..."
+          required
+        ></textarea>
+
+        <div class="actions">
+          <button id="analyzeBtn" class="btn btn-primary">
+            🔍 تحليل الطلبات
+          </button>
+
+          <button id="clearBtn" class="btn btn-secondary">🗑️ مسح</button>
+        </div>
+      </section>
+
+      <!-- Statistics -->
+      <section id="statistics" class="statistics hidden">
+        <div class="stat-card">
+          <span>إجمالي الطلبات</span>
+          <strong id="totalCount">0</strong>
+        </div>
+
+        <div class="stat-card success">
+          <span>طلبات مكتملة</span>
+          <strong id="completeCount">0</strong>
+        </div>
+
+        <div class="stat-card warning">
+          <span>تحتاج مراجعة</span>
+          <strong id="reviewCount">0</strong>
+        </div>
+      </section>
+
+      <!-- Results -->
+      <section id="resultsSection" class="card hidden">
+        <div class="results-header">
+          <div>
+            <h2>نتائج التحليل</h2>
+
+            <p>يمكنك تعديل البيانات قبل إنشاء التقرير.</p>
+          </div>
+
+          <button id="addRowBtn" class="btn btn-outline">＋ إضافة طلب</button>
+        </div>
+
+        <div class="table-container">
+          <table id="resultsTable">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>اسم المتبرع</th>
+                <th>رقم الجوال</th>
+                <th>الحي</th>
+                <th>نوع التبرع</th>
+                <th>اليوم</th>
+                <th>الحالة</th>
+                <th>إجراء</th>
+              </tr>
+            </thead>
+
+          <tbody id="resultsBody"></tbody>
+          </table>
+        </div>
+
+        <div class="copy-section">
+          <div class="copy-section-header">
+            <div>
+              <h3>بيانات مرتبة للنسخ</h3>
+              <p>يتم تحديثها تلقائيًا عند تعديل الطلبات.</p>
+            </div>
+
+            <button id="copyDataBtn" class="btn btn-outline" type="button">
+              📋 نسخ البيانات
+            </button>
+          </div>
+
+          <textarea
+            id="copyOutput"
+            class="copy-output"
+            readonly
+            aria-label="البيانات المرتبة للنسخ"
+            placeholder="ستظهر البيانات المرتبة هنا بعد تحليل الطلبات..."
+          ></textarea>
+
+          <p id="copyFeedback" class="copy-feedback" aria-live="polite"></p>
+        </div>
+
+        <div class="export-actions">
+          <button id="exportExcelBtn" class="btn btn-success">
+            📊 تصدير Excel
+          </button>
+
+          <button id="printBtn" class="btn btn-dark">🖨️ طباعة التقرير</button>
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <p>نظام التقارير اليوميه</p>
+    </footer>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/12.17.1/firebase-app-compat.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/12.17.1/firebase-auth-compat.min.js"></script>
+    <script src="js/firebase-config.js"></script>
+    <script src="js/auth-guard.js"></script>
+    <script src="js/app.js"></script>
+  </body>
+</html>

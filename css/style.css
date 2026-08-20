@@ -68,7 +68,22 @@ body {
   width: 100px;
   height: 80px;
 }
+.not{
+  font-size: 15px;
+  border: #15803d dashed;
+  border-radius: 15px;
+  width: 500px;
+  padding: 10px;
+  margin-top: 5px;
+  align-items: center;
+  justify-content: center;
+  display: flex;
+}
 
+.not strong{
+  color: #dc2626;
+  font-weight: bold;
+}
 .brand h1 {
   font-size: 22px;
   color: var(--dark);
@@ -645,5 +660,8 @@ td input:focus {
 
   .btn {
     width: 100%;
+  }
+  .not{
+     width: 100%;
   }
 }

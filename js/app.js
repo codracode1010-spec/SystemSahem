@@ -179,6 +179,17 @@ const DAYS = [
 
 ];
 
+const FLEXIBLE_DAYS = [
+    "غداً", "غدا", "بكرة", "بكره", "بعد بكرة", "بعد بكره",
+    "أي يوم", "اي يوم", "أي وقت", "اي وقت"
+];
+
+const GENERIC_DONATION_WORDS = [
+    "كنب", "كنبة", "طاولة", "طاولات", "كراسي", "كرسي", "دواليب", "دولاب",
+    "مراتب", "مرتبة", "مفارش", "ستائر", "ثلاجة", "ثلاجات", "غسالة", "غسالات",
+    "فرن", "أدوات منزلية", "ادوات منزلية", "أغراض منزلية", "اغراض منزلية"
+];
+
 
 // ============================================================
 // أحياء مدينة الرياض
@@ -191,7 +202,7 @@ const DAYS = [
 const RIYADH_NEIGHBORHOODS = [
 
     // شمال الرياض
-    "الملقا", "الصحافة", "النخيل", "الياسمين", "النرجس",
+    "الملقا", "الصحافة", "النخيل", "الياسمين", "الدرعية","النرجس",
     "حطين", "العارض", "الغدير", "النفل", "الرحمانية",
     "الوادي", "القيروان", "الازدهار", "الفلاح", "العقيق",
     "النزهة", "المهدية", "الواحة", "القادسية", "أشبيلية",
@@ -337,7 +348,7 @@ if (analyzeBtn) {
 
         if (!text) {
 
-            alert("يرجى لصق رسائل المتبرعين أولاً.");
+            alert("يرجى لصق رسائل العملاء أولاً.");
 
             return;
 
@@ -409,11 +420,11 @@ function parseMessages(text) {
 
         if (
 
-            donor.name ||
             donor.phone ||
             donor.neighborhood ||
             donor.donationType ||
-            donor.day
+            donor.day ||
+            extractNamedField(block, FIELD_KEYWORDS.name)
 
         ) {
 
@@ -430,7 +441,67 @@ function parseMessages(text) {
     });
 
 
-    return results;
+    return mergeDuplicateDonors(results);
+
+}
+
+
+// ============================================================
+// دمج الطلبات المكررة بحسب رقم الجوال
+// ============================================================
+
+function mergeDuplicateDonors(items) {
+
+    const merged = [];
+    const byPhone = new Map();
+
+    items.forEach(function (donor) {
+
+        if (!donor.phone || !byPhone.has(donor.phone)) {
+
+            merged.push(donor);
+
+            if (donor.phone) {
+                byPhone.set(donor.phone, donor);
+            }
+
+            return;
+
+        }
+
+        const existing = byPhone.get(donor.phone);
+
+        ["name", "neighborhood", "day"].forEach(function (field) {
+
+            if ((!existing[field] || existing[field] === "فاعل خير") && donor[field]) {
+                existing[field] = donor[field];
+            }
+
+        });
+
+        existing.donationType = mergeListValues(
+            existing.donationType,
+            donor.donationType
+        );
+
+        refreshDonorStatus(existing);
+
+    });
+
+    return merged;
+
+}
+
+
+function mergeListValues(first, second) {
+
+    const values = String(first || "")
+        .split(/\s*[،,]\s*/)
+        .concat(String(second || "").split(/\s*[،,]\s*/))
+        .map(function (value) { return value.trim(); })
+        .filter(Boolean);
+
+    return Array.from(new Set(values)).join("، ");
 
 }
 
@@ -451,6 +522,8 @@ function normalizeText(text) {
 
         .replace(/\u00A0/g, " ")
 
+        .replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069]/g, "")
+
         .replace(/[٠-٩]/g, function (digit) {
 
             return "٠١٢٣٤٥٦٧٨٩".indexOf(digit);
@@ -458,6 +531,8 @@ function normalizeText(text) {
         })
 
         .replace(/[ \t]+/g, " ")
+
+        .replace(/^\s*[>*]+\s?/gm, "")
 
         .replace(/\n{4,}/g, "\n\n")
 
@@ -514,9 +589,6 @@ function removeOrganizationTemplate(text) {
     ];
 
 
-    let skipAnnouncement = false;
-
-
     lines.forEach(function (originalLine) {
 
         const line = originalLine.trim();
@@ -540,11 +612,7 @@ function removeOrganizationTemplate(text) {
 
 
         if (isAnnouncement) {
-
-            skipAnnouncement = true;
-
             return;
-
         }
 
 
@@ -567,20 +635,7 @@ function removeOrganizationTemplate(text) {
 
         ) {
 
-            skipAnnouncement = false;
-
             result.push(line);
-
-            return;
-
-        }
-
-
-        /*
-         * تجاهل النصوص الطويلة الخاصة بالإعلان.
-         */
-
-        if (skipAnnouncement) {
 
             return;
 
@@ -603,13 +658,7 @@ function removeOrganizationTemplate(text) {
 
 function splitMessages(text) {
 
-    const lines = text
-        .split("\n")
-        .map(function (line) {
-
-            return line.trim();
-
-        });
+    const lines = text.split("\n");
 
 
     const blocks = [];
@@ -619,24 +668,24 @@ function splitMessages(text) {
 
     for (let i = 0; i < lines.length; i++) {
 
-        const line = lines[i];
+        let line = lines[i].trim();
+
+        /* إزالة ترويسة تصدير واتساب مع إبقاء محتوى الرسالة. */
+        const whatsappHeader = line.match(
+            /^\[?\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}[،,]?\s+\d{1,2}:\d{2}(?::\d{2})?\s*(?:[ap]\.?m\.?|[صم])?\]?\s*[-–]?\s*[^:]{1,80}:\s*(.*)$/i
+        );
+
+        if (whatsappHeader) {
+            line = whatsappHeader[1].trim();
+        }
 
 
         /*
-         * سطر فارغ = غالبًا بداية رسالة جديدة.
+         * السطر الفارغ تنسيق داخل الرسالة غالبًا، وليس دليلاً
+         * كافيًا وحده على بدء طلب جديد.
          */
 
         if (!line) {
-
-            if (current.length > 0) {
-
-                blocks.push(
-                    current.join("\n")
-                );
-
-                current = [];
-
-            }
 
             continue;
 
@@ -657,6 +706,9 @@ function splitMessages(text) {
                 current.join("\n")
             );
 
+        const hasDifferentPhone = linePhones.some(function (phone) {
+            return !currentPhones.includes(phone);
+        });
 
         if (
 
@@ -664,7 +716,9 @@ function splitMessages(text) {
 
             current.length > 0 &&
 
-            currentPhones.length > 0
+            currentPhones.length > 0 &&
+
+            hasDifferentPhone
 
         ) {
 
@@ -686,7 +740,10 @@ function splitMessages(text) {
 
         if (
 
-            startsWithAny(line, FIELD_KEYWORDS.name) &&
+            (
+                startsWithAny(line, FIELD_KEYWORDS.name) ||
+                /^(?:أنا|انا|اسمي|معك)\s+/i.test(line)
+            ) &&
 
             current.length > 0 &&
 
@@ -767,12 +824,20 @@ function improveBlocks(blocks) {
             const linePhones =
                 extractPhones(line);
 
+            const currentPhones =
+                extractPhones(current.join("\n"));
+
+            const hasDifferentPhone = linePhones.some(function (phone) {
+                return !currentPhones.includes(phone);
+            });
 
             if (
 
                 linePhones.length > 0 &&
 
-                current.length > 0
+                currentPhones.length > 0 &&
+
+                hasDifferentPhone
 
             ) {
 
@@ -858,6 +923,13 @@ function extractDonor(block) {
 
     }
 
+    if (!donor.name) {
+
+        donor.name =
+            extractNameFromBareLine(block);
+
+    }
+
 
     // ========================================================
     // رقم الجوال
@@ -928,6 +1000,13 @@ function extractDonor(block) {
 
     }
 
+    if (!donor.donationType) {
+
+        donor.donationType =
+            extractDonationFromSentence(block);
+
+    }
+
 
     // ========================================================
     // اليوم
@@ -977,7 +1056,12 @@ function extractDonor(block) {
         );
 
 
-    /*
+    donor.day =
+        cleanDay(donor.day);
+
+
+
+        /*
      * إذا لم نتمكن من تحديد نوع التبرع إطلاقًا،
      * نكتب "أغراض" كقيمة افتراضية بدل ترك الحقل فارغًا.
      */
@@ -989,31 +1073,11 @@ function extractDonor(block) {
     }
 
 
-    donor.day =
-        cleanDay(donor.day);
-
-
     // ========================================================
     // تحديد الحالة
     // ========================================================
 
-    if (
-
-        donor.phone &&
-
-        donor.neighborhood &&
-
-        donor.donationType
-
-    ) {
-
-        donor.status = "complete";
-
-    } else {
-
-        donor.status = "review";
-
-    }
+    refreshDonorStatus(donor);
 
 
     return donor;
@@ -1133,6 +1197,46 @@ function extractNamedField(text, keywords) {
 
                 }
 
+            }
+
+        }
+
+    }
+
+
+    /*
+     * دعم النماذج المكتوبة في سطر واحد، مثل:
+     * الاسم محمد الجوال 05... الحي الشفا التبرع ملابس
+     */
+    const allLabels = Object.keys(FIELD_KEYWORDS)
+        .reduce(function (list, key) {
+            return list.concat(FIELD_KEYWORDS[key]);
+        }, [])
+        .sort(function (a, b) { return b.length - a.length; })
+        .map(escapeRegex)
+        .join("|");
+
+    const inlineText = text.replace(/\n+/g, " | ");
+
+    for (const keyword of keywords.slice().sort(function (a, b) {
+        return b.length - a.length;
+    })) {
+
+        const inlinePattern = new RegExp(
+            "(?:^|[\\s|،؛])" + escapeRegex(keyword) +
+            "\\s*[:：=\\-]?\\s*(.+?)(?=\\s*(?:" + allLabels +
+            ")\\s*[:：=\\-]?|\\s*[|،؛]\\s*|$)",
+            "i"
+        );
+
+        const inlineMatch = inlineText.match(inlinePattern);
+
+        if (inlineMatch) {
+
+            const value = inlineMatch[1].trim();
+
+            if (value && !isFieldTitle(value)) {
+                return value;
             }
 
         }
@@ -1431,8 +1535,7 @@ function detectDonationType(text) {
 
     const found = [];
 
-
-    DONATION_TYPES.forEach(function (type) {
+    DONATION_TYPES.concat(GENERIC_DONATION_WORDS).forEach(function (type) {
 
         const pattern = new RegExp(
             "(^|[\\s،,.؛:]|و)" +
@@ -1455,6 +1558,29 @@ function detectDonationType(text) {
 
 
     return found.join("، ");
+
+}
+
+
+function extractDonationFromSentence(text) {
+
+    const patterns = [
+        /(?:عندي|لدي|يوجد عندي)\s+([^\n،؛]+)(?=\s+(?:ورقمي|رقمي|الجوال|في حي|الحي|والموعد|واليوم)|$)/i,
+        /(?:حاب|حابة|أرغب|ارغب|أود|اود)\s+(?:أن\s+|ان\s+)?(?:أتبرع|اتبرع)\s*(?:بـ|ب)?\s*([^\n،؛]+)/i,
+        /(?:تبرعي|التبرع)\s+(?:عبارة عن|هو)?\s*[:\-]?\s*([^\n،؛]+)/i
+    ];
+
+    for (const pattern of patterns) {
+
+        const match = text.match(pattern);
+
+        if (match) {
+            return cleanDonation(match[1]);
+        }
+
+    }
+
+    return "";
 
 }
 
@@ -1515,8 +1641,15 @@ function detectDay(text) {
 
     }
 
+    const normalized = normalizeArabicForMatch(text);
+    const flexible = FLEXIBLE_DAYS
+        .slice()
+        .sort(function (a, b) { return b.length - a.length; })
+        .find(function (day) {
+            return normalized.includes(normalizeArabicForMatch(day));
+        });
 
-    return "";
+    return flexible || "";
 
 }
 
@@ -1596,6 +1729,46 @@ function extractNameFromSentence(text) {
 
     }
 
+
+    return "";
+
+}
+
+
+function extractNameFromBareLine(text) {
+
+    const ignored = /^(?:السلام|مرحبا|هلا|شكرا|نعم|لا|تم|موافق|فاعل خير|صباح|مساء)/i;
+    const lines = text.split("\n");
+
+    for (const originalLine of lines) {
+
+        const line = originalLine.replace(/^[-•*]+\s*/, "").trim();
+
+        if (
+            !line ||
+            ignored.test(line) ||
+            extractPhones(line).length > 0 ||
+            detectDay(line) ||
+            detectNeighborhoodFromList(line) ||
+            detectDonationType(line) ||
+            Object.keys(FIELD_KEYWORDS).some(function (key) {
+                return startsWithAny(line, FIELD_KEYWORDS[key]);
+            })
+        ) {
+            continue;
+        }
+
+        const words = line.split(/\s+/);
+
+        if (
+            words.length >= 1 &&
+            words.length <= 5 &&
+            /^[\u0600-\u06FF\s'-]+$/.test(line)
+        ) {
+            return line;
+        }
+
+    }
 
     return "";
 
@@ -1828,17 +2001,7 @@ function renderTable() {
             </td>
 
 
-            <td>
-
-                <input
-                    type="text"
-                    value="${escapeHTML(donor.phone)}"
-                    data-field="phone"
-                    data-index="${index}"
-                    placeholder="05xxxxxxxx"
-                >
-
-            </td>
+            
 
 
             <td>
@@ -1853,6 +2016,17 @@ function renderTable() {
 
             </td>
 
+            <td>
+
+                <input
+                    type="text"
+                    value="${escapeHTML(donor.phone)}"
+                    data-field="phone"
+                    data-index="${index}"
+                    placeholder="05xxxxxxxx"
+                >
+
+            </td>
 
             <td>
 
@@ -1888,7 +2062,7 @@ function renderTable() {
                     ?
 
                     `
-                    <span class="status complete" data-status-index="${index}">
+                    <span class="status complete" data-status-index="${index}" title="بيانات الطلب الأساسية مكتملة">
                         مكتمل
                     </span>
                     `
@@ -1896,7 +2070,7 @@ function renderTable() {
                     :
 
                     `
-                    <span class="status review" data-status-index="${index}">
+                    <span class="status review" data-status-index="${index}" title="${escapeHTML(donor.reviewReason || "تحقق من البيانات الناقصة")}">
                         يحتاج مراجعة
                     </span>
                     `
@@ -1988,24 +2162,7 @@ function updateDonorStatus(index) {
     const donor =
         donors[index];
 
-
-    if (
-
-        donor.phone &&
-
-        donor.neighborhood &&
-
-        donor.donationType
-
-    ) {
-
-        donor.status = "complete";
-
-    } else {
-
-        donor.status = "review";
-
-    }
+    refreshDonorStatus(donor);
 
 
     const statusElement = resultsBody.querySelector(
@@ -2023,12 +2180,43 @@ function updateDonorStatus(index) {
                 ? "مكتمل"
                 : "يحتاج مراجعة";
 
+        statusElement.title =
+            donor.status === "complete"
+                ? "بيانات الطلب الأساسية مكتملة"
+                : donor.reviewReason;
+
     }
 
 
     updateStatistics();
 
     updateCopyOutput();
+
+}
+
+
+function refreshDonorStatus(donor) {
+
+    const missing = [];
+
+    if (!donor.phone) {
+        missing.push("رقم الجوال");
+    }
+
+    if (!donor.neighborhood) {
+        missing.push("الحي");
+    }
+
+    if (!donor.donationType) {
+        missing.push("نوع التبرع");
+    }
+
+    donor.status = missing.length === 0 ? "complete" : "review";
+    donor.reviewReason = missing.length > 0
+        ? "البيانات الناقصة: " + missing.join("، ")
+        : "";
+
+    return donor;
 
 }
 
@@ -2257,16 +2445,13 @@ function updateCopyOutput() {
     copyOutput.value = donors.map(function (donor, index) {
 
         return [
-            `طلب رقم ${index + 1}`,
-            `اسم المتبرع: ${donor.name || "—"}`,
-            `رقم الجوال: ${donor.phone || "—"}`,
-            `الحي: ${donor.neighborhood || "—"}`,
-            `نوع التبرع: ${donor.donationType || "—"}`,
-            `اليوم: ${donor.day || "—"}`,
-            `الحالة: ${donor.status === "complete" ? "مكتمل" : "يحتاج مراجعة"}`
+            ` ${donor.name || ""}`,
+            ` ${donor.neighborhood || ""}`,
+            ` ${donor.phone || ""}`,
+            `  ${donor.donationType || ""}`,
         ].join("\n");
 
-    }).join("\n\n--------------------\n\n");
+    }).join("\n");
 
 
     if (copyFeedback) {

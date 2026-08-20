@@ -59,9 +59,17 @@ const FIELD_KEYWORDS = {
     ],
 
     neighborhood: [
+        "اسم الحي",
+        "اسم حى",
+        "اسم المنطقة",
+        "اسم المنطقه",
+        "العنوان الوطني",
         "الحي",
+        "الحى",
         "حي",
+        "حى",
         "المنطقة",
+        "المنطقه",
         "الموقع",
         "موقع",
         "مكان السكن",
@@ -202,7 +210,7 @@ const GENERIC_DONATION_WORDS = [
 const RIYADH_NEIGHBORHOODS = [
 
     // شمال الرياض
-    "الملقا", "الصحافة", "النخيل", "الياسمين", "الدرعية","النرجس",
+    "الملقا", "الصحافة", "النخيل", "الياسمين", "النرجس",
     "حطين", "العارض", "الغدير", "النفل", "الرحمانية",
     "الوادي", "القيروان", "الازدهار", "الفلاح", "العقيق",
     "النزهة", "المهدية", "الواحة", "القادسية", "أشبيلية",
@@ -237,6 +245,12 @@ const RIYADH_NEIGHBORHOODS = [
     "البديعة", "ظهرة البديعة", "جامعة الملك سعود", "شبرا",
     "عرفة", "لبن", "ظهرة لبن", "العريجاء", "غبيرة",
     "نمار", "اسكان", "عرقة"
+
+    // أحياء إضافية وصيغ شائعة في الطلبات المنسوخة
+    , "النهضة", "الحمراء", "المنار", "الندوة", "الجنادرية",
+    "الملك فيصل", "صلاح الدين", "الضباط", "الزهراء", "الخزامى",
+    "أم سليم", "الدريهمية", "العود", "الجرادية", "ثليم",
+    "العوالي", "طيبة", "المشاعل", "المصفاة", "هيت", "الحسية"
 
 ];
 
@@ -348,7 +362,7 @@ if (analyzeBtn) {
 
         if (!text) {
 
-            alert("يرجى لصق رسائل العملاء أولاً.");
+            alert("يرجى لصق رسائل المتبرعين أولاً.");
 
             return;
 
@@ -524,9 +538,15 @@ function normalizeText(text) {
 
         .replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069]/g, "")
 
-        .replace(/[٠-٩]/g, function (digit) {
+        .replace(/[٠-٩۰-۹]/g, function (digit) {
 
-            return "٠١٢٣٤٥٦٧٨٩".indexOf(digit);
+            const arabicDigits = "٠١٢٣٤٥٦٧٨٩";
+            const persianDigits = "۰۱۲۳۴۵۶۷۸۹";
+            const arabicIndex = arabicDigits.indexOf(digit);
+
+            return arabicIndex >= 0
+                ? arabicIndex
+                : persianDigits.indexOf(digit);
 
         })
 
@@ -672,10 +692,18 @@ function splitMessages(text) {
 
         /* إزالة ترويسة تصدير واتساب مع إبقاء محتوى الرسالة. */
         const whatsappHeader = line.match(
-            /^\[?\d{1,2}[\/.\-]\d{1,2}[\/.\-]\d{2,4}[،,]?\s+\d{1,2}:\d{2}(?::\d{2})?\s*(?:[ap]\.?m\.?|[صم])?\]?\s*[-–]?\s*[^:]{1,80}:\s*(.*)$/i
+            /^\[?\d{1,2}[\/.\-]\d{1,2}(?:[\/.\-]\d{2,4})?[،,]?\s+\d{1,2}:\d{2}(?::\d{2})?\s*(?:[ap]\.?m\.?|[صم])?\]?\s*[-–]?\s*[^:]{1,80}:\s*(.*)$/i
         );
 
         if (whatsappHeader) {
+
+            /* كل ترويسة واتساب تمثل رسالة مستقلة، حتى لو لم يبدأ
+             * محتواها برقم جوال أو باسم واضح. */
+            if (current.length > 0) {
+                blocks.push(current.join("\n"));
+                current = [];
+            }
+
             line = whatsappHeader[1].trim();
         }
 
@@ -969,6 +997,19 @@ function extractDonor(block) {
      * حتى لو ورد بدون كلمة "حي" وبدون أي تسمية.
      */
 
+    /*
+     * بعض المتبرعين يرسلون اسم حي غير موجود في القائمة كسطر
+     * مستقل بعد رقم الجوال. نلتقطه مع شروط تمنع اعتباره اسمًا
+     * أو نوع تبرع.
+     */
+    if (!donor.neighborhood) {
+
+        donor.neighborhood =
+            extractNeighborhoodFromBareLine(block);
+
+    }
+
+
     if (!donor.neighborhood) {
 
         donor.neighborhood =
@@ -1004,6 +1045,17 @@ function extractDonor(block) {
 
         donor.donationType =
             extractDonationFromSentence(block);
+
+    }
+
+    if (!donor.donationType) {
+
+        donor.donationType =
+            extractDonationFromBareLine(
+                block,
+                donor.name,
+                donor.neighborhood
+            );
 
     }
 
@@ -1050,6 +1102,18 @@ function extractDonor(block) {
         );
 
 
+    /* منع تكرار الحي نفسه في خانة الاسم عند الرسائل المختصرة. */
+    if (
+        donor.name &&
+        donor.neighborhood &&
+        normalizeArabicForMatch(donor.name) === normalizeArabicForMatch(donor.neighborhood)
+    ) {
+
+        donor.name = "";
+
+    }
+
+
     donor.donationType =
         cleanDonation(
             donor.donationType
@@ -1091,14 +1155,14 @@ function extractDonor(block) {
 
 function extractNamedField(text, keywords) {
 
-    const lines =
-        text.split("\n");
+    const lines = text.split("\n");
 
 
-    for (const line of lines) {
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
 
-        const cleanLine =
-            line.trim();
+        const cleanLine = lines[lineIndex]
+            .replace(/^\s*(?:[-–—•*▪▫◾◽✅☑️📌☎️📞👤🏠🎁📅]+\s*)+/, "")
+            .trim();
 
 
         if (!cleanLine) {
@@ -1107,6 +1171,38 @@ function extractNamedField(text, keywords) {
 
 
         for (const keyword of keywords) {
+
+            /*
+             * دعم النماذج التي يكون فيها عنوان الحقل في سطر
+             * والقيمة في السطر التالي مباشرة.
+             */
+            const titleOnlyPattern = new RegExp(
+                "^" + escapeRegex(keyword) +
+                "(?![\\u0621-\\u064A])\\s*[:：=\\/\\-–—]?\\s*$",
+                "i"
+            );
+
+            if (titleOnlyPattern.test(cleanLine)) {
+
+                for (let nextIndex = lineIndex + 1; nextIndex < lines.length; nextIndex++) {
+
+                    const nextValue = lines[nextIndex]
+                        .replace(/^\s*(?:[-–—•*▪▫◾◽✅☑️📌☎️📞👤🏠🎁📅]+\s*)+/, "")
+                        .trim();
+
+                    if (!nextValue) {
+                        continue;
+                    }
+
+                    if (!isFieldTitle(nextValue)) {
+                        return nextValue;
+                    }
+
+                    break;
+
+                }
+
+            }
 
 
             // ==================================================
@@ -1119,7 +1215,8 @@ function extractNamedField(text, keywords) {
                 new RegExp(
                     "^" +
                     escapeRegex(keyword) +
-                    "\\s*[:：-]\\s*(.*)$",
+                    "(?![\\u0621-\\u064A])" +
+                    "\\s*[:：=\\/\\-–—]\\s*(.*)$",
                     "i"
                 );
 
@@ -1171,6 +1268,7 @@ function extractNamedField(text, keywords) {
                 new RegExp(
                     "^" +
                     escapeRegex(keyword) +
+                    "(?![\\u0621-\\u064A])" +
                     "\\s+(.+)$",
                     "i"
                 );
@@ -1224,8 +1322,9 @@ function extractNamedField(text, keywords) {
 
         const inlinePattern = new RegExp(
             "(?:^|[\\s|،؛])" + escapeRegex(keyword) +
-            "\\s*[:：=\\-]?\\s*(.+?)(?=\\s*(?:" + allLabels +
-            ")\\s*[:：=\\-]?|\\s*[|،؛]\\s*|$)",
+            "(?![\\u0621-\\u064A])" +
+            "\\s*[:：=\\/\\-]?\\s*(.+?)(?=\\s*(?:" + allLabels +
+            ")(?![\\u0621-\\u064A])\\s*[:：=\\/\\-]?|\\s*[|،؛]\\s*|$)",
             "i"
         );
 
@@ -1286,9 +1385,12 @@ function isFieldTitle(value) {
     ];
 
 
-    return titles.includes(
-        value.trim()
-    );
+    const normalizedTitle = String(value)
+        .replace(/^\s*(?:[-–—•*▪▫◾◽✅☑️📌☎️📞👤🏠🎁📅]+\s*)+/, "")
+        .replace(/\s*[:：=\/\-–—]\s*$/, "")
+        .trim();
+
+    return titles.includes(normalizedTitle);
 
 }
 
@@ -1343,10 +1445,19 @@ function extractPhones(text) {
      */
 
 
-    const matches =
-        text.match(
-            /(?:\+?966[\s-]?)?5(?:[\s-]?\d){8}/g
-        );
+    const searchableText = normalizeText(String(text));
+
+    /*
+     * نلتقط الرقم كمرشح أولاً ثم نتحقق منه في normalizePhone.
+     * يدعم الأقواس والنقاط والشرطة و00 قبل مفتاح المملكة.
+     */
+    const phonePattern = /(?:^|[^\d])((?:\+|00)?966[\s().\-]*5(?:[\s().\-]*\d){8}|0?5(?:[\s().\-]*\d){8})(?!\d)/g;
+    const matches = [];
+    let phoneMatch;
+
+    while ((phoneMatch = phonePattern.exec(searchableText)) !== null) {
+        matches.push(phoneMatch[1]);
+    }
 
 
     if (!matches) {
@@ -1399,13 +1510,14 @@ function normalizePhone(phone) {
 
 
     let number =
-        String(phone)
-            .replace(/[٠-٩]/g, function (digit) {
-
-                return "٠١٢٣٤٥٦٧٨٩".indexOf(digit);
-
-            })
+        normalizeText(String(phone))
             .replace(/\D/g, "");
+
+    if (number.startsWith("00966")) {
+
+        number = number.substring(5);
+
+    }
 
 
     /*
@@ -1474,15 +1586,15 @@ function extractNeighborhoodFromSentence(text) {
 
     const patterns = [
 
-        /(?:الحي|حي)\s*[:\-]?\s*([^\n،,.]+)/i,
+        /(?:^|\n)\s*(?:اسم\s+)?(?:الحي|الحى|حي|حى)\s*[:=\/\-–—]?\s*([^\n،,.؛]+)/i,
 
-        /في\s+(?:حي\s+)?([^\n،,.]+)/i,
+        /(?:العنوان|العنوان الوطني|الموقع|السكن|مكان السكن)\s*[:=\/\-–—]?\s*(?:في\s+)?(?:(?:حي|حى)\s+)?([^\n،,.؛]+)/i,
 
-        /ساكن\s+(?:في|بـ|ب)\s+(?:حي\s+)?([^\n،,.]+)/i,
+        /ساكن\s+(?:في|بـ|ب)\s+(?:(?:حي|حى)\s+)?([^\n،,.]+)/i,
 
-        /موجود\s+(?:في|بـ|ب)\s+(?:حي\s+)?([^\n،,.]+)/i,
+        /موجود\s+(?:في|بـ|ب)\s+(?:(?:حي|حى)\s+)?([^\n،,.]+)/i,
 
-        /منطقة\s*[:\-]?\s*([^\n،,.]+)/i
+        /منطقة\s*[:=\-–—]?\s*([^\n،,.؛]+)/i
 
     ];
 
@@ -1513,7 +1625,12 @@ function extractNeighborhoodFromSentence(text) {
             neighborhood.trim();
 
 
-        if (neighborhood) {
+        if (
+            neighborhood &&
+            !extractPhones(neighborhood).length &&
+            !detectDay(neighborhood) &&
+            !isFieldTitle(neighborhood)
+        ) {
 
             return neighborhood;
 
@@ -1523,6 +1640,85 @@ function extractNeighborhoodFromSentence(text) {
 
 
     return "";
+
+}
+
+
+// ============================================================
+// استخراج الحي المكتوب كسطر مستقل
+// ============================================================
+
+function extractNeighborhoodFromBareLine(text) {
+
+    const lines = text.split("\n").map(function (originalLine) {
+        return originalLine
+            .replace(/^\s*(?:[-–—•*▪▫◾◽✅☑️📌☎️📞👤🏠🎁📅]+\s*)+/, "")
+            .trim();
+    });
+
+    const phoneLineIndexes = [];
+
+    lines.forEach(function (line, index) {
+        if (extractPhones(line).length > 0) {
+            phoneLineIndexes.push(index);
+        }
+    });
+
+    if (phoneLineIndexes.length === 0) {
+        return "";
+    }
+
+    const candidates = [];
+
+    lines.forEach(function (line, index) {
+
+        if (
+            !line ||
+            extractPhones(line).length > 0 ||
+            detectDay(line) ||
+            detectDonationType(line) ||
+            /^(?:السلام|وعليكم|مرحبا|هلا|شكرا|نعم|لا|تم|موافق|اسمي|أنا|انا|معك|عندي|لدي|يوجد|ملاحظة)/i.test(line) ||
+            Object.keys(FIELD_KEYWORDS).some(function (key) {
+                return startsWithAny(line, FIELD_KEYWORDS[key]);
+            })
+        ) {
+            return;
+        }
+
+        const words = line.split(/\s+/);
+
+        if (
+            words.length > 4 ||
+            line.length > 45 ||
+            !/^[\u0621-\u064A][\u0621-\u064A\s'-]*$/.test(line) ||
+            /(?:شارع|طريق|مخرج|عمارة|منزل|بيت|شقة|الدور|قريب|بجوار|لوكيشن)/i.test(line)
+        ) {
+            return;
+        }
+
+        const distanceAfterPhone = Math.min.apply(null, phoneLineIndexes.map(function (phoneIndex) {
+            return index > phoneIndex ? index - phoneIndex : Number.POSITIVE_INFINITY;
+        }));
+
+        const looksLikeDistrict = /^(?:ال|ام\s|أم\s|ظهرة\s)/i.test(line);
+
+        if (distanceAfterPhone <= 3 || looksLikeDistrict) {
+            candidates.push({
+                value: line,
+                score: (distanceAfterPhone <= 3 ? 10 - distanceAfterPhone : 0) +
+                    (looksLikeDistrict ? 2 : 0)
+            });
+        }
+
+    });
+
+    candidates.sort(function (first, second) {
+        return second.score - first.score;
+    });
+
+    return candidates.length > 0
+        ? cleanNeighborhood(candidates[0].value)
+        : "";
 
 }
 
@@ -1576,6 +1772,56 @@ function extractDonationFromSentence(text) {
 
         if (match) {
             return cleanDonation(match[1]);
+        }
+
+    }
+
+    return "";
+
+}
+
+
+// ============================================================
+// استخراج وصف التبرع الحر المكتوب كسطر مستقل
+// ============================================================
+
+function extractDonationFromBareLine(text, donorName, neighborhood) {
+
+    const normalizedName = normalizeArabicForMatch(donorName || "");
+    const normalizedNeighborhood = normalizeArabicForMatch(neighborhood || "");
+    const lines = text.split("\n");
+
+    for (const originalLine of lines) {
+
+        const line = originalLine
+            .replace(/^\s*(?:[-–—•*▪▫◾◽✅☑️📌☎️📞👤🏠🎁📅]+\s*)+/, "")
+            .trim();
+        const normalizedLine = normalizeArabicForMatch(line);
+
+        if (
+            !line ||
+            normalizedLine === normalizedName ||
+            normalizedLine === normalizedNeighborhood ||
+            /^(?:فاعل خير|مجهول|بدون اسم|السلام|وعليكم|مرحبا|هلا|شكرا|نعم|لا|تم|موافق)/i.test(line) ||
+            /(?:مستعجل|عاجل|مهم|الظهر|العصر|الصباح|المساء|لوكيشن|موقع|عنوان|تواصل|اتصال|واتساب)/i.test(line) ||
+            extractPhones(line).length > 0 ||
+            detectDay(line) ||
+            detectNeighborhoodFromList(line) ||
+            Object.keys(FIELD_KEYWORDS).some(function (key) {
+                return startsWithAny(line, FIELD_KEYWORDS[key]);
+            })
+        ) {
+            continue;
+        }
+
+        const words = line.split(/\s+/);
+
+        if (
+            words.length <= 5 &&
+            line.length <= 55 &&
+            /^[A-Za-z\u0621-\u064A][A-Za-z\u0621-\u064A\s،,'&-]*$/.test(line)
+        ) {
+            return cleanDonation(line);
         }
 
     }
@@ -1737,16 +1983,18 @@ function extractNameFromSentence(text) {
 
 function extractNameFromBareLine(text) {
 
-    const ignored = /^(?:السلام|مرحبا|هلا|شكرا|نعم|لا|تم|موافق|فاعل خير|صباح|مساء)/i;
+    const ignored = /^(?:السلام|وعليكم|مرحبا|مرحباً|هلا|اهلا|أهلا|شكرا|شكراً|يعطيك|الله|نعم|لا|تم|موافق|فاعل خير|مجهول|بدون اسم|لا يوجد|غير موجود|صباح|مساء|لو سمحت|ابغى|أبغى|ابي|أبي|اريد|أريد|عندي|لدي|يوجد|متوفر|مستعجل|عاجل|مهم|التواصل|الموقع|العنوان|الطلب|ملاحظة)/i;
+    const nonNameWords = /(?:تبرع|اغراض|أغراض|ملابس|اثاث|أثاث|اجهزة|أجهزة|كنب|طاولة|كراسي|بطانيات|احذية|أحذية|استلام|موعد|اليوم|بكرة|غدا|غداً|واتساب|جوال|هاتف|رقم|حي|شارع|طريق|لوكيشن|موقع|الرياض|الجمعية)/i;
     const lines = text.split("\n");
 
-    for (const originalLine of lines) {
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
 
-        const line = originalLine.replace(/^[-•*]+\s*/, "").trim();
+        const line = lines[lineIndex].replace(/^[-•*]+\s*/, "").trim();
 
         if (
             !line ||
             ignored.test(line) ||
+            nonNameWords.test(line) ||
             extractPhones(line).length > 0 ||
             detectDay(line) ||
             detectNeighborhoodFromList(line) ||
@@ -1759,11 +2007,22 @@ function extractNameFromBareLine(text) {
         }
 
         const words = line.split(/\s+/);
+        const hasPhoneBefore = lines.slice(0, lineIndex).some(function (previousLine) {
+            return extractPhones(previousLine).length > 0;
+        });
+
+        /* السطر المفرد الواقع بعد الجوال يكون غالبًا حيًا أو وصف
+         * تبرع، وليس اسم متبرع. */
+        if (words.length === 1 && hasPhoneBefore) {
+            continue;
+        }
 
         if (
             words.length >= 1 &&
-            words.length <= 5 &&
-            /^[\u0600-\u06FF\s'-]+$/.test(line)
+            words.length <= 4 &&
+            line.length <= 40 &&
+            /^[A-Za-z\u0621-\u064A][A-Za-z\u0621-\u064A\s'-]*$/.test(line) &&
+            !/[؟!]/.test(line)
         ) {
             return line;
         }
@@ -1791,6 +2050,11 @@ function cleanName(name) {
     name =
         String(name).trim();
 
+    name = name
+        .replace(/^\s*(?:السيد|السيدة|الأستاذ|الاستاذ|الأستاذة|الاستاذة)\s*[\/:\-–—]?\s*/i, "")
+        .replace(/\s+/g, " ")
+        .trim();
+
 
     /*
      * إذا دخل رقم داخل الاسم،
@@ -1813,6 +2077,17 @@ function cleanName(name) {
             /\s+\d[\d\s-]*$/,
             ""
         );
+
+    /* العبارات التي تعني أن الاسم غير مُدخل ليست أسماءً. */
+    if (
+        /^(?:فاعل خير|مجهول|بدون اسم|لا يوجد|لايوجد|غير موجود|ما فيه|لم يذكر|لم يحدد|رفض الإفصاح|رفض الافصاح|خاص|-)$/i.test(name) ||
+        !/^[A-Za-z\u0621-\u064A][A-Za-z\u0621-\u064A\s'-]*$/.test(name) ||
+        /(?:جوال|هاتف|رقم|حي|شارع|موقع|تبرع|اغراض|أغراض|موعد|استلام)/i.test(name)
+    ) {
+
+        return "";
+
+    }
 
 
     return name.trim();
@@ -1849,6 +2124,37 @@ function cleanNeighborhood(value) {
         ""
     );
 
+    value = value
+        .replace(/\s+(?:شارع|طريق|مخرج|قرب|بجوار|جنب|خلف|أمام|امام)(?=\s|$).*$/i, "")
+        .replace(/^[\s:：=\-–—]+|[\s:：=\-–—]+$/g, "")
+        .trim();
+
+    const canonicalNeighborhood = detectNeighborhoodFromList(value);
+
+    if (canonicalNeighborhood) {
+
+        /* إذا كانت القيمة هي اسم الحي فقط نعيد الاسم الموحّد.
+         * أما الصيغ المركبة مثل "الشفا العجلان" فنحافظ عليها
+         * بدل إسقاط الجزء المكمل للموقع. */
+        if (
+            normalizeArabicForMatch(value) ===
+            normalizeArabicForMatch(canonicalNeighborhood)
+        ) {
+            return canonicalNeighborhood;
+        }
+
+    }
+
+    if (
+        !value ||
+        extractPhones(value).length > 0 ||
+        /^(?:غير معروف|غير محدد|لا يوجد|لايوجد|لوكيشن|ارسال لوكيشن|إرسال لوكيشن)$/i.test(value)
+    ) {
+
+        return "";
+
+    }
+
 
     return value.trim();
 
@@ -1868,7 +2174,7 @@ function cleanDonation(value) {
     }
 
 
-    return String(value)
+    const cleaned = String(value)
 
         .replace(
             /^(?:عندي|تبرعي|التبرع)\s*[:\-]?\s*/i,
@@ -1876,6 +2182,12 @@ function cleanDonation(value) {
         )
 
         .trim();
+
+    if (/^اغراض$/i.test(cleaned)) {
+        return "أغراض";
+    }
+
+    return cleaned;
 
 }
 
@@ -2027,6 +2339,7 @@ function renderTable() {
                 >
 
             </td>
+
 
             <td>
 
